@@ -45,8 +45,10 @@ class MainViewController: UIViewController {
 	private var images = [String:UIImage]()
 
 	override func viewDidLoad() {
+        
 		super.viewDidLoad()
 		picker.delegate = self
+        
 	}
     
     override func viewWillAppear(_ animated: Bool) {
