@@ -36,8 +36,7 @@ class MainViewController: UIViewController {
     
     private let appDelegate = UIApplication.shared.delegate as! AppDelegate
     private let context = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
-    
-	private var friends = [Friend]()
+    private var fetchedRC: NSFetchedResultsController<Friend>!
 	private var filtered = [Friend]()
 	private var isFiltered = false
 	private var friendPets = [String:[String]]()
@@ -66,7 +65,7 @@ class MainViewController: UIViewController {
 		if segue.identifier == "petSegue" {
 			if let index = sender as? IndexPath {
 				let pvc = segue.destination as! PetsViewController
-				let friend = friends[index.row]
+                let friend = fetchedRC.object(at: index)
                 if let pets = friendPets[friend.name!] {
 					pvc.pets = pets
 				}
@@ -80,13 +79,13 @@ class MainViewController: UIViewController {
 	// MARK:- Actions
 	@IBAction func addFriend() {
 		let data = FriendData()
-        let friend = Friend(entity: Friend.entity(), insertInto: context)
+        let friend = Friend(entity: Friend.entity(),
+                            insertInto: context)
         friend.name = data.name
         friend.address = data.address
         friend.dob = data.dob as Date
         friend.eyeColor = data.eyeColor
         appDelegate.saveContext()
-		friends.append(friend)
 		refresh()
         collectionView.reloadData()
         showEditButton()
@@ -94,7 +93,10 @@ class MainViewController: UIViewController {
 	
 	// MARK:- Private Methods
 	private func showEditButton() {
-		if friends.count > 0 {
+        guard let objs = fetchedRC.fetchedObjects else {
+            return
+        }
+		if objs.count > 0 {
 			navigationItem.leftBarButtonItem = editButtonItem
 		}
 	}
@@ -105,9 +107,11 @@ class MainViewController: UIViewController {
             request.predicate = NSPredicate(format: "name CONTAINS[cd] %@", query)
         }
         let sort = NSSortDescriptor(key: #keyPath(Friend.name), ascending: true, selector: #selector(NSString.caseInsensitiveCompare(_:)))
-        request.sortDescriptors = [sort]
+        let color = NSSortDescriptor(key: #keyPath(Friend.eyeColor), ascending: true)
+        request.sortDescriptors = [color, sort]
         do {
-            friends = try context.fetch(request)
+            fetchedRC = NSFetchedResultsController(fetchRequest: request, managedObjectContext: context, sectionNameKeyPath: #keyPath(Friend.eyeColor), cacheName: nil)
+            try fetchedRC.performFetch()
         } catch let error as NSError {
             print("Could not fetch. \(error), \(error.userInfo)")
         }
@@ -116,14 +120,35 @@ class MainViewController: UIViewController {
 
 // Collection View Delegates
 extension MainViewController: UICollectionViewDelegate, UICollectionViewDataSource {
+    
+    func numberOfSections(in collectionView: UICollectionView) -> Int {
+        return fetchedRC.sections?.count ?? 0
+    }
+    
 	func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-		let count = isFiltered ? filtered.count : friends.count
-		return count
+        guard let sections = fetchedRC.sections, let objs = sections[section].objects else {
+            return 0
+        }
+        return objs.count
 	}
+    
+    func collectionView(_ collectionView: UICollectionView, viewForSupplementaryElementOfKind kind: String, at indexPath: IndexPath) -> UICollectionReusableView {
+        
+        let view = collectionView.dequeueReusableSupplementaryView(ofKind: kind, withReuseIdentifier: "HeaderROw", for: indexPath)
+        
+        if let label = view.viewWithTag(1000) as? UILabel {
+            if let friends = fetchedRC.sections?[indexPath.section].objects as? [Friend], let friend = friends.first {
+                label.text = "Eye Color: " + friend.eyeColorString
+            }
+        }
+        
+        return view
+        
+    }
 	
 	func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
 		let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "FriendCell", for: indexPath) as! FriendCell
-		let friend = isFiltered ? filtered[indexPath.row] : friends[indexPath.row]
+        let friend = fetchedRC.object(at: indexPath)
         cell.nameLabel.text = friend.name!
         cell.addressLabel.text = friend.address!
         cell.ageLabel.text = "Age: \(friend.age)"
@@ -174,7 +199,7 @@ extension MainViewController: UIImagePickerControllerDelegate, UINavigationContr
 let info = convertFromUIImagePickerControllerInfoKeyDictionary(info)
 
 		let image = info[convertFromUIImagePickerControllerInfoKey(UIImagePickerController.InfoKey.originalImage)] as! UIImage
-		let friend = isFiltered ? filtered[selected.row] : friends[selected.row]
+        let friend = fetchedRC.object(at: selected)
         friend.photo = image.pngData() as Data?
         appDelegate.saveContext()
 		collectionView?.reloadItems(at: [selected])
